@@ -1,0 +1,12 @@
+   # recordings and outputs — never commit participant data
+   data/
+   *.csv
+   *.txt
+   !requirements.txt
+   *.png
+   *.edf
+   *.bdf
+
+   # Python
+   __pycache__/
+   .venv/
