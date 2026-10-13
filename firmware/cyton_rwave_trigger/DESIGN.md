@@ -374,3 +374,13 @@ Highest heart rate at which the 300 ms block still fits (with `msd` = 20 ms): ab
 - **`QTC_MS = 0` turns off the T-wave estimate.** The safe zone then starts only `T_MARGIN_MS` (100 ms) after the R-wave, and the stimulus fires at 200 ms. That is inside the T-wave for a normal ECG (the T-wave usually ends ~350–450 ms after the R-wave), which is not what the header comment describes. If this is intentional for bench testing, that's fine; for recordings, set it to the subject's QTc (typically 400–440 ms) and check the resulting heart-rate limit above.
 - **Default ADS1299 settings have SRB2 on.** Only the PC's channel command turns it off. After power-up, a soft reset (`v`), or in standalone mode, channel 1 uses SRB2 as its reference.
 - **`ADS_GAIN` must match the channel gain** set from the PC (`x1060100X` sets gain 24, which matches).
+
+
+### 3.5 Tests to run + parameters to change
+
+- Because `QTC_MS = 0`, the time between R and trigger should be ~200 ms --> double check the time in the code output. The version used to generate most recent plots may have suboptimal settings. 
+- Also adjust `T_MARGIN_MS` to place the trigger in the right spot
+- Turn off adaptive amplitude thresholding and adjust low/high cutoffs. 
+- Turn on adaptive thresholding and play around with the fraction parameters (`ADAPT_HIGH_FRAC`, `ADAPT_LOW_FRAC`).
+- adjust the `RR_TOLERANCE` which skips stim if peak to peak varaibility is more than this fraction
+- adjust `RR_VAR_K`: sets the margin before the next beat; with a more variable beat, it's longer
