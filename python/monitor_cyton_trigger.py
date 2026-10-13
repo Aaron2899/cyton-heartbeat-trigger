@@ -31,7 +31,11 @@ ecg_row = BoardShim.get_exg_channels(bid)[args.channel - 1]
 beat_row, trig_row, filt_row = BoardShim.get_analog_channels(bid)   # aux0, aux1, aux2
 
 board.prepare_session()
-board.config_board("x1060100X")   # channel 1: on, gain 24, normal input, bias on, SRB2 OFF, SRB1 off
+for ch in "12345678":
+    if ch == str(args.channel):
+        board.config_board(f"x{ch}060100X")   # chosen channel: on, gain 24, normal input, bias on, SRB2 OFF, SRB1 off
+    else:   
+        board.config_board(f"x{ch}161000X")   # rest of the channels: off, gain 24, input shorted, bias off, SRB2 OFF, SRB1 off
 board.start_stream()            # sends 'b' -> firmware starts detecting
 print(f"Recording {args.seconds:.0f} s ... (detector needs ~3 s to learn)")
 time.sleep(args.seconds)
