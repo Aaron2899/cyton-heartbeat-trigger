@@ -382,5 +382,5 @@ Highest heart rate at which the 300 ms block still fits (with `msd` = 20 ms): ab
 - Also adjust `T_MARGIN_MS` to place the trigger in the right spot
 - Turn off adaptive amplitude thresholding and adjust low/high cutoffs. 
 - Turn on adaptive thresholding and play around with the fraction parameters (`ADAPT_HIGH_FRAC`, `ADAPT_LOW_FRAC`).
-- adjust the `RR_TOLERANCE` which skips stim if peak to peak varaibility is more than this fraction
+- adjust the `RR_TOLERANCE` which skips stim if peak to peak variability is more than this fraction
 - adjust `RR_VAR_K`: sets the margin before the next beat; with a more variable beat, it's longer
