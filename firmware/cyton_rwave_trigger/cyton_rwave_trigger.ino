@@ -58,28 +58,42 @@
 #define ADAPT_LOW_FRAC       0.25f  // TH_LOW  = 25 %  (hysteresis band)
 #define MIN_TH_HIGH_UV       80.0f  // floor so noise alone can't trigger
 
-// ---- beat validation (ms) ----
-#define REFRACTORY_MS        250    // no new beat within this time of a rising edge
-#define QRS_MIN_MS           12     // rising->falling shorter than this = spike/noise
-#define QRS_MAX_MS           130    // longer than this = artifact/saturation
-#define RR_MIN_MS            400    // accept 40-150 bpm
-#define RR_MAX_MS            1500
-#define RR_TOLERANCE         0.20f  // skip stim if last RR deviates >20 % from mean
-#define RR_AVG_BEATS         8      // beats used for next-beat prediction and variability
-
 // ---- safe-zone timing (ms, relative to the R-wave rising edge) ----
 #define QTC_MS               0.0f // Bazett QT = QTc * sqrt(RR[s])  (T-wave end)
-#define T_MARGIN_MS          100     // extra time after estimated T-wave end (Bazett is approximate)
+// Nader
+#define T_MARGIN_MS          350     // Dealy from heartbeat to begining of BASELINE
+//#define T_MARGIN_MS          100     // extra time after estimated T-wave end (Bazett is approximate)
 // Margin before the predicted next rising edge = QRS lead + K x beat-to-beat RR change.
 // The T-wave end is tied to the beat just detected (predictable); the next beat is not,
 // so the variable margin goes on that side.
-#define QRS_ONSET_LEAD_MS    100     // QRS starts this long before the detected rising edge
+
+// Nader
+#define SAFE_ZONE            0      // use this flag to enable/disable the use of safe zone
+
+#define QRS_ONSET_LEAD_MS    100    // QRS starts this long before the detected rising edge
 #define RR_VAR_K             2.5f   // x mean |successive RR difference| of the last beats
 #define PLACE_CENTERED       0      // 0 = block right after T-wave (recommended), 1 = centre
 #define BASELINE_MS          100    // pre-stim baseline inside the safe zone
 #define RESPONSE_MS          200    // post-stim analysis window inside the safe zone
 #define LATENCY_COMP_MS      0      // measured front-end delay to subtract (calibrate)
 #define STIM_EVERY_N_BEATS   1      // 1 = every eligible beat, 2 = every other, ...
+
+// ---- beat validation (ms) ----
+
+// Nader
+#define REFRACTORY_MS        600    // (T_MARGIN_MS+BASELINE_MS+RESPONSE_MS) no new beat within this interval (100 bpm)
+//#define REFRACTORY_MS        250    // no new beat within this time of a rising edge
+
+#define QRS_MIN_MS           12     // rising->falling shorter than this = spike/noise
+#define QRS_MAX_MS           130    // longer than this = artifact/saturation
+#define RR_MIN_MS            400    // accept 40-150 bpm
+#define RR_MAX_MS            1500
+// Nader
+#define RR_TOLERANCE         0.50f  // skip stim if last RR deviates >50 % from mean
+#define RR_AVG_BEATS         3      // beats used for next-beat prediction and variability
+//#define RR_TOLERANCE         0.20f  // skip stim if last RR deviates >20 % from mean
+//#define RR_AVG_BEATS         8      // beats used for next-beat prediction and variability
+
 
 // ---- trigger output ----
 #define TRIG_PIN             18     // D18 header pin (free in default board mode)
@@ -209,8 +223,11 @@ void onFallingEdge() {
 
   // update running amplitude (clamp so one artifact can't blow it up)
   float pk = qrsPeak;
-  if (ampEst > 0.0f && pk > 3.0f * ampEst) pk = 3.0f * ampEst;
-  ampEst = 0.875f * ampEst + 0.125f * pk;
+  // Nader
+  if (ampEst > 0.0f && pk > 2.0f * ampEst) pk = 2.0f * ampEst;
+  ampEst = 0.75f * ampEst + 0.25f * pk;
+//  if (ampEst > 0.0f && pk > 3.0f * ampEst) pk = 3.0f * ampEst;
+//  ampEst = 0.875f * ampEst + 0.125f * pk;
 
   beatCount++;
   bool rrOk = false;
@@ -245,19 +262,27 @@ void onFallingEdge() {
   if (fabsf(rrLastMs - rrMeanMs) > RR_TOLERANCE * rrMeanMs) return;  // irregular beat
 
   // safe zone relative to this rising edge
+  
+// Nader
+#if SAFE_ZONE
   float qtMs      = QTC_MS * sqrtf(rrMeanMs / 1000.0f);
   float safeStart = qtMs + T_MARGIN_MS;
   float safeEnd   = rrMeanMs - (QRS_ONSET_LEAD_MS + RR_VAR_K * msdMs);
   float slack     = (safeEnd - safeStart) - (BASELINE_MS + RESPONSE_MS);
-  if (slack < 0.0f) return;                           // heart rate too high for 300 ms
+  if (slack < 0.0f) return;   // heart rate too high for 300 ms
+#else
+  float stimMs = T_MARGIN_MS + BASELINE_MS;
+#endif 
 
   if (beatCount % STIM_EVERY_N_BEATS != 0) return;
 
-#if PLACE_CENTERED
-  float stimMs = safeStart + BASELINE_MS + 0.5f * slack;
-#else
-  float stimMs = safeStart + BASELINE_MS;             // spare time goes before the next beat
-#endif
+// Nader
+// #if PLACE_CENTERED
+//  float stimMs = safeStart + BASELINE_MS + 0.5f * slack;
+// #else
+//  float stimMs = safeStart + BASELINE_MS;             // spare time goes before the next beat
+// #endif
+
   uint32_t t = riseUs + (uint32_t)((stimMs - LATENCY_COMP_MS) * 1000.0f);
   if ((int32_t)(t - micros()) > 0) {
     stimAtUs = t;
@@ -285,7 +310,9 @@ void processSample(float uv) {
   if (thHigh < MIN_TH_HIGH_UV) thHigh = MIN_TH_HIGH_UV;
   float thLow = thHigh * (ADAPT_LOW_FRAC / ADAPT_HIGH_FRAC);
   // slowly relax if beats stop being found (e.g. amplitude dropped)
-  if (st != LEARN && (n - lastBeatN) > msToSamples(2000)) ampEst *= 0.999f;
+// Nader
+  if (st != LEARN && (n - lastBeatN) > msToSamples(RR_MAX_MS)) ampEst *= 0.687f;
+//  if (st != LEARN && (n - lastBeatN) > msToSamples(2000)) ampEst *= 0.999f;
 #else
   float thHigh = FIXED_TH_HIGH_UV;
   float thLow  = FIXED_TH_LOW_UV;
