@@ -185,24 +185,14 @@ float blankInput(float uv) {
   return uv;
 }
 
-// Called often from loop(). If `beforeBlockingSend` is true and the trigger is
-// due within the next ~4 ms, wait for it here so the (blocking) radio send
-// can't delay it.
-void serviceTrigger(bool beforeBlockingSend) {
-  if (stimPending) {
-    int32_t dt = (int32_t)(stimAtUs - micros());
-    if (dt <= 0) {
-      fireTrigger();
-    } else if (beforeBlockingSend && dt < 4000) {
-      while (!timeReached(stimAtUs)) { }
-      fireTrigger();
+// Called often from loop(). Fire the trigger if it;s due and end the pulse after TRIG_PULSE_us
+void serviceTrigger() {
+  if (stimPending && (int32_t)(stimAtUs - micros()) <= 0) fireTrigger();
+  if (pulseHigh && (uint32_t)(micros() - pulseStartUs) >= TRIG_PULSE_US){
+    digitalWrite(TRIG_PIN, LOW);
+    pulseHigh = false; 
     }
   }
-  if (pulseHigh && (uint32_t)(micros() - pulseStartUs) >= TRIG_PULSE_US) {
-    digitalWrite(TRIG_PIN, LOW);
-    pulseHigh = false;
-  }
-}
 
 void resetDetector() {
   filtInit = false; hp = 0.0f; maSum = 0.0f; maIdx = 0; yLast = 0.0f;
@@ -368,7 +358,7 @@ void loop() {
   // a soft reset from the PC turns accel mode back on; keep our markers
   if (board.curAccelMode == board.ACCEL_MODE_ON) board.useAccel(false);
 
-  serviceTrigger(false);
+  serviceTrigger();
 
   if (board.streaming) {
     if (board.channelDataAvailable) {
@@ -390,12 +380,18 @@ void loop() {
       markBeat = false;
       markStim = false;
 
-      serviceTrigger(true);                // don't let the radio send delay a trigger
-      board.sendChannelData();
+      serviceTrigger();                
+      if (stimPending && (int32_t)(stimAtUs - micros())<4000){ //if the trigger is due in the next 4 ms, dont send the data packet
+        while (!timeReached(stimAtUs)) { }
+        fireTrigger();
+        board.sampleCounter++; //make sure a gap is recorded for the dropped packet
+      } else{
+        board.sendChannelData();
+      }
     }
   }
 
-  serviceTrigger(false);
+  serviceTrigger();
 
   if (board.hasDataSerial0()) board.processChar(board.getCharSerial0());
   if (board.hasDataSerial1()) board.processChar(board.getCharSerial1());

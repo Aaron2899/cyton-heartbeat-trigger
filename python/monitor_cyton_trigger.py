@@ -43,29 +43,47 @@ data = board.get_board_data()
 board.stop_stream()
 board.release_session()
 
-t = np.arange(data.shape[1]) / fs
+# ---- sample counter: every packet carries a counter that counts 0-255 and wraps
+pkt = data[BoardShim.get_package_num_channel(bid)].astype(int)
+steps = np.diff(pkt) % 256                    # 1 = next packet, 2 = one packet missing
+steps[steps == 0] = 1                         # repeated counter: treat as the next packet
+si = np.concatenate(([0], np.cumsum(steps)))  # true sample number of each received packet
+t = si / fs                                   # time axis that counts missing packets as time
+
 beats = np.flatnonzero(data[beat_row] == 1)
 trigs = np.flatnonzero(data[trig_row] == 1)
 
-print(f"\nSamples: {data.shape[1]}  ({data.shape[1] / fs:.1f} s)")
+# ---- missing packets: a 1-packet gap right before a trigger marker is the firmware
+# skipping the send at the trigger; anything else was lost on the way
+lost = steps - 1
+gaps = np.flatnonzero(lost) + 1               # index of the first packet after each gap
+is_skip = np.isin(gaps, trigs) & (lost[gaps - 1] == 1)
+radio_gaps = gaps[~is_skip]
+n_skip = int(is_skip.sum())
+n_lost = int(lost.sum()) - n_skip
+
+print(f"\nSamples: {data.shape[1]}  ({(si[-1] + 1) / fs:.1f} s)")
 print(f"Beats detected: {len(beats)}")
 if len(beats) > 1:
-    rr = np.diff(beats) / fs
+    rr = np.diff(si[beats]) / fs
     print(f"Heart rate: {60 / rr.mean():.1f} bpm  (RR {rr.mean() * 1000:.0f} ± {rr.std() * 1000:.0f} ms)")
 print(f"Triggers: {len(trigs)}  ({100 * len(trigs) / max(len(beats), 1):.0f}% of beats)")
+print(f"Skipped at triggers: {n_skip}  (expected: 1 per trigger)")
+print(f"Lost packets: {n_lost}  ({100 * n_lost / (si[-1] + 1):.2f}%) in {len(radio_gaps)} gap(s)")
 
 delays = []
 for tr in trigs:
     prev = beats[beats < tr]
     if len(prev):
-        delays.append((tr - prev[-1]) / fs * 1000)
+        delays.append((si[tr] - si[prev[-1]]) / fs * 1000)
 if delays:
     d = np.array(delays)
     print(f"Trigger at R+{np.median(d):.0f} ms (range {d.min():.0f}-{d.max():.0f}; ±4 ms sample resolution)")
 
+
 # ---- plot the last 10 s
 sel = t > t[-1] - 10
-fig, ax = plt.subplots(2, 1, figsize=(12, 6), sharex=True)
+fig, ax = plt.subplots(2, 1, figsize=(14, 6), sharex=True)
 ax[0].plot(t[sel], data[ecg_row][sel], lw=0.7)
 ax[0].set_ylabel("raw ch (uV)")
 ax[1].plot(t[sel], data[filt_row][sel], lw=0.7, label="detector input (filtered)")
@@ -74,9 +92,12 @@ for b in beats[sel[beats]]:
 for tr in trigs[sel[trigs]]:
     ax[1].axvspan(t[tr] - 0.1, t[tr] + 0.2, color="orange", alpha=0.25)
     ax[1].axvline(t[tr], color="r")
+for g in radio_gaps[sel[radio_gaps]]:
+    ax[1].axvline(t[g], color="k", ls="--", alpha=0.6)
 ax[1].set_ylabel("filtered (uV)")
 ax[1].set_xlabel("time (s)")
-ax[1].set_title("green = detected beat, red = trigger, orange = 100 ms baseline + 200 ms response")
+ax[1].set_title("green = detected beat, red = trigger, orange = 100 ms baseline + 200 ms response, "
+                "dashed black = lost packets")
 plt.tight_layout()
 plt.savefig("cyton_trigger_check.png", dpi=120)
 print("\nSaved plot: cyton_trigger_check.png")
