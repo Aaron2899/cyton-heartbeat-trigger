@@ -5,7 +5,7 @@ Streams for N seconds, then reports detected beats, triggers, heart rate and
 where each trigger landed relative to its beat, and saves a plot.
 
     pip install brainflow numpy matplotlib
-    python monitor_cyton_trigger.py --port COM3 --seconds 60 --channel 1
+    python monitor_cyton_trigger.py --port COM3 --seconds 60 --channel 1 --delayby 350 --every 1
 """
 import argparse
 import time
