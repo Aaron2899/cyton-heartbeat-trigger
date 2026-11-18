@@ -20,7 +20,14 @@ ap = argparse.ArgumentParser()
 ap.add_argument("--port", required=True)
 ap.add_argument("--seconds", type=float, default=60)
 ap.add_argument("--channel", type=int, default=1)
+ap.add_argument("--delayby", type=int, default=350, help="changes the t-margin (0-1400), which is the time after the R wave. This is added to preset 100 ms baseline window")
+ap.add_argument("--every", type=int, default=1, help = "trigger every x heartbeats (1 or more)")
 args = ap.parse_args()
+if not 0 <= args.delayby <= 1400:
+    ap.error("--delayby must be 0-1400 ms (trigger must land before the next beat)")
+if not 1 <= args.every <= 65535:
+    ap.error("--every must be 1-65535")
+
 
 bid = BoardIds.CYTON_BOARD.value
 params = BrainFlowInputParams()
@@ -36,6 +43,11 @@ for ch in "12345678":
         board.config_board(f"x{ch}060100X")   # chosen channel: on, gain 24, normal input, bias on, SRB2 OFF, SRB1 off
     else:   
         board.config_board(f"x{ch}161000X")   # rest of the channels: off, gain 24, input shorted, bias off, SRB2 OFF, SRB1 off
+
+for cmd in (f"(T{args.delayby})", f"(N{args.every})"):
+    reply = board.config_board(cmd).replace("$$$", "").strip()
+    print("Board:", reply)
+
 board.start_stream()            # sends 'b' -> firmware starts detecting
 print(f"Recording {args.seconds:.0f} s ... (detector needs ~3 s to learn)")
 time.sleep(args.seconds)

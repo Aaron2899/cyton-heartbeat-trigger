@@ -61,7 +61,7 @@
 // ---- safe-zone timing (ms, relative to the R-wave rising edge) ----
 #define QTC_MS               0.0f // Bazett QT = QTc * sqrt(RR[s])  (T-wave end)
 // Nader
-#define T_MARGIN_MS          350     // Dealy from heartbeat to begining of BASELINE
+#define T_MARGIN_MS          350     // Delay from heartbeat to begining of BASELINE
 //#define T_MARGIN_MS          100     // extra time after estimated T-wave end (Bazett is approximate)
 // Margin before the predicted next rising edge = QRS lead + K x beat-to-beat RR change.
 // The T-wave end is tied to the beat just detected (predictable); the next beat is not,
@@ -137,6 +137,15 @@ uint32_t rrBuf[RR_AVG_BEATS];
 uint8_t  rrCount = 0, rrIdx = 0;
 uint32_t beatCount = 0;
 uint32_t lastSampleMs = 0;
+
+// ---- settings the PC can change while running (start at the #define values) ----
+// Commands look like "(T350)" or "(N2)". '(' and ')' aren't used by the OpenBCI
+// library, so every other character still goes to the library as before.
+uint16_t tMarginMs  = T_MARGIN_MS;
+uint16_t stimEveryN = STIM_EVERY_N_BEATS;
+char     cmdBuf[12];
+uint8_t  cmdLen = 0;
+bool     inCmd  = false;
 
 // ---- trigger state ----
 bool     stimPending = false;
@@ -256,15 +265,15 @@ void onFallingEdge() {
 // Nader
 #if SAFE_ZONE
   float qtMs      = QTC_MS * sqrtf(rrMeanMs / 1000.0f);
-  float safeStart = qtMs + T_MARGIN_MS;
+  float safeStart = qtMs + tMarginMs;
   float safeEnd   = rrMeanMs - (QRS_ONSET_LEAD_MS + RR_VAR_K * msdMs);
   float slack     = (safeEnd - safeStart) - (BASELINE_MS + RESPONSE_MS);
   if (slack < 0.0f) return;   // heart rate too high for 300 ms
 #else
-  float stimMs = T_MARGIN_MS + BASELINE_MS;
+  float stimMs = tMarginMs + BASELINE_MS;
 #endif 
 
-  if (beatCount % STIM_EVERY_N_BEATS != 0) return;
+  if (beatCount % stimEveryN != 0) return;
 
 // Nader
 // #if PLACE_CENTERED
@@ -341,6 +350,42 @@ void processSample(float uv) {
   }
 }
 
+// Apply one "(...)" command from the PC and reply, ending with "$$$" like the library does.
+void runCommand() {
+  cmdBuf[cmdLen] = '\0';
+  long v = atol(cmdBuf + 1);
+  bool ok = true;
+  if (cmdBuf[0] == 'T' && v >= 0 && v <= 1400) {
+    tMarginMs = v;
+  } else if (cmdBuf[0] == 'N' && v >= 1 && v <= 65535) {
+    stimEveryN = v;
+  } else {
+    ok = false;
+  }
+  if (board.streaming) return;            // never print text into the data stream
+  board.printSerial(ok ? "OK " : "Rejected ");
+  board.printSerial(cmdBuf);
+  board.printSerial(" | T_MARGIN ");
+  board.printSerial((int)tMarginMs);
+  board.printSerial(" ms, every ");
+  board.printSerial((int)stimEveryN);
+  board.printSerial(" beat(s)");
+  board.sendEOT();
+}
+
+// Characters from the PC: collect our "(...)" commands, pass everything else to the library.
+void handleChar(char c) {
+  if (c == '(') { inCmd = true; cmdLen = 0; return; }
+  if (inCmd) {
+    if (c == ')') { inCmd = false; runCommand(); }
+    else if (cmdLen < sizeof(cmdBuf) - 1) cmdBuf[cmdLen++] = c;
+    else inCmd = false; 
+    return;
+  }
+  board.processChar(c);
+}
+
+
 void setup() {
   board.begin();
   board.useAccel(false);                   // send aux data (our markers) instead of accel
@@ -393,8 +438,8 @@ void loop() {
 
   serviceTrigger();
 
-  if (board.hasDataSerial0()) board.processChar(board.getCharSerial0());
-  if (board.hasDataSerial1()) board.processChar(board.getCharSerial1());
+  if (board.hasDataSerial0()) handleChar(board.getCharSerial0());
+  if (board.hasDataSerial1()) handleChar(board.getCharSerial1());
 
   board.loop();
   wifi.loop();
